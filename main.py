@@ -2414,7 +2414,6 @@ async def submit_score(
     )
 
 
-
 @bot.event
 async def on_message(message: discord.Message):
     # ignore bots except the apply bot
@@ -2487,8 +2486,45 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
+async def run_bot_with_backoff():
+    """Run the bot with exponential backoff on startup HTTP errors (e.g. 429)."""
+    from discord.errors import HTTPException
+
+    token = os.getenv("TOKEN")
+    if not token:
+        print("[FATAL] TOKEN environment variable is not set.")
+        return
+
+    backoff = 1.0
+    max_backoff = 300.0  # cap at 5 minutes
+
+    while True:
+        try:
+            print("[INFO] Starting bot...")
+            await bot.start(token)
+            print("[INFO] bot.start() returned; exiting run loop.")
+            return
+        except HTTPException as e:
+            # This catches 429s and similar HTTP errors during login
+            print(f"[ERROR] HTTPException during login: {e}. Backing off for {backoff:.1f} seconds.")
+            await asyncio.sleep(backoff)
+            backoff = min(max_backoff, backoff * 2)
+        except Exception as e:
+            # Any other unexpected error on startup
+            print(f"[ERROR] Unhandled exception during bot start: {e}. Backing off for {backoff:.1f} seconds.")
+            await asyncio.sleep(backoff)
+            backoff = min(max_backoff, backoff * 2)
+        finally:
+            # Ensure the client is fully closed between attempts
+            if bot.is_closed():
+                print("[INFO] Bot is already closed.")
+            else:
+                print("[INFO] Closing bot connection.")
+                await bot.close()
+
+
 async def main():
-    await bot.start(os.getenv("TOKEN"))
+    await run_bot_with_backoff()
 
 
 if __name__ == "__main__":
