@@ -2469,7 +2469,10 @@ async def on_message(message: discord.Message):
 
             cog: TeamManager | None = bot.get_cog("TeamManager")
             if cog is None:
-                await message.channel.send("TeamManager cog not loaded; cannot auto-create team.", delete_after=10)
+                await message.channel.send(
+                    "TeamManager cog not loaded; cannot auto-create team.",
+                    delete_after=10
+                )
                 return
 
             await cog._internal_create_team(
@@ -2480,14 +2483,17 @@ async def on_message(message: discord.Message):
                 color_code=color_code,
             )
         except Exception as e:
-            await message.channel.send(f"Error parsing `/create-team` message: {e}", delete_after=10)
+            await message.channel.send(
+                f"Error parsing `/create-team` message: {e}",
+                delete_after=10
+            )
 
     # allow command processing
     await bot.process_commands(message)
 
 
 async def run_bot_with_backoff():
-    """Run the bot with exponential backoff on startup HTTP errors (e.g. 429)."""
+    """Run the bot once; on startup HTTP errors (e.g. 429), wait then exit."""
     from discord.errors import HTTPException
 
     token = os.getenv("TOKEN")
@@ -2495,32 +2501,25 @@ async def run_bot_with_backoff():
         print("[FATAL] TOKEN environment variable is not set.")
         return
 
-    backoff = 1.0
-    max_backoff = 300.0  # cap at 5 minutes
-
-    while True:
-        try:
-            print("[INFO] Starting bot...")
-            await bot.start(token)
-            print("[INFO] bot.start() returned; exiting run loop.")
-            return
-        except HTTPException as e:
-            # This catches 429s and similar HTTP errors during login
-            print(f"[ERROR] HTTPException during login: {e}. Backing off for {backoff:.1f} seconds.")
-            await asyncio.sleep(backoff)
-            backoff = min(max_backoff, backoff * 2)
-        except Exception as e:
-            # Any other unexpected error on startup
-            print(f"[ERROR] Unhandled exception during bot start: {e}. Backing off for {backoff:.1f} seconds.")
-            await asyncio.sleep(backoff)
-            backoff = min(max_backoff, backoff * 2)
-        finally:
-            # Ensure the client is fully closed between attempts
-            if bot.is_closed():
-                print("[INFO] Bot is already closed.")
-            else:
-                print("[INFO] Closing bot connection.")
-                await bot.close()
+    try:
+        print("[INFO] Starting bot...")
+        await bot.start(token)
+        print("[INFO] bot.start() returned; exiting normally.")
+    except HTTPException as e:
+        # e.g. 429 Too Many Requests during login
+        print(f"[ERROR] HTTPException during login: {e}")
+        wait_seconds = 60
+        print(f"[INFO] Waiting {wait_seconds} seconds before exiting due to HTTPException.")
+        await asyncio.sleep(wait_seconds)
+    except Exception as e:
+        print(f"[ERROR] Unhandled exception during bot start: {e}")
+        wait_seconds = 30
+        print(f"[INFO] Waiting {wait_seconds} seconds before exiting due to error.")
+        await asyncio.sleep(wait_seconds)
+    finally:
+        if not bot.is_closed():
+            print("[INFO] Closing bot connection.")
+            await bot.close()
 
 
 async def main():
